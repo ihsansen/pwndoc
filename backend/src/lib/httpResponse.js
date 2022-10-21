@@ -23,7 +23,9 @@ function NoContent(res, data){
 exports.NoContent = NoContent;
 
 function SendFile(res, filename, file){
-    res.set({"Content-Disposition": `attachment; filename="${filename}"`});
+    let encoded = encodeURIComponent(filename);
+    res.set({"Content-Disposition": `attachment; filename="${encoded}"`});
+    //res.set({"Content-Disposition": `attachment; filename="${filename}"`});
     res.status(200).send(file);
 }
 exports.SendFile = SendFile;
