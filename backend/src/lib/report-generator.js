@@ -204,6 +204,54 @@ expressions.filters.count = function(input, severity) {
     return count;
 }
 
+// Count vulnerability by severity and type
+// Example: {findings | countbytype: 'Critical' : 'Black'}
+expressions.filters.countbytype = function(input, severity, type) {
+    if(!input) return input;
+    var count = 0;
+
+    for(var i = 0; i < input.length; i++){
+	if(input[i].cvss.baseSeverity === severity){
+		for(var j = 0; j < input[i].test_type.length; j++){
+			if(input[i].test_type[j] === type){
+           			 count += 1;
+	        }	}
+	}
+    }
+
+    return count;
+}
+
+// Count vulnerability by type
+// Example: {findings | typecount: 'Black'}
+expressions.filters.typecount = function(input, type) {
+    if(!input) return input;
+    var count = 0;
+
+    for(var i = 0; i < input.length; i++){
+	
+	for(var j = 0; j < input[i].test_type.length; j++){
+	
+		if(input[i].test_type[j] === type){
+            		count += 1;
+        }	}
+    }
+
+    return count;
+}
+
+
+//nd you would like to show the price with two digits of precision, you can write in your template:{price | toFixed:2}
+
+expressions.filters.toFixed = function (input, precision) {
+    // In our example precision is the integer 2
+    // This condition should be used to make sure that if your input is
+    // undefined, your output will be undefined as well and will not
+    // throw an error
+    if (!input) return input;
+    return input.toFixed(precision);
+};
+
 // Translate using locale from 'translate' folder
 // Example: {input | translate: 'fr'}
 expressions.filters.translate = function(input, locale) {
@@ -420,6 +468,7 @@ async function prepAuditData(data, settings) {
 
     var result = {}
     result.name = data.name || "undefined"
+    result.state = "DENEME" || "undefined"
     result.auditType = $t(data.auditType) || "undefined"
     result.location = data.location || "undefined"
     result.date = data.date || "undefined"
