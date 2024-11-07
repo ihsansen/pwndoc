@@ -212,10 +212,9 @@ expressions.filters.countbytype = function(input, severity, type) {
 
     for(var i = 0; i < input.length; i++){
 	if(input[i].cvss.baseSeverity === severity){
-		for(var j = 0; j < input[i].test_type.length; j++){
-			if(input[i].test_type[j] === type){
+			if(input[i].test_type === type){
            			 count += 1;
-	        }	}
+		}
 	}
     }
 
@@ -229,12 +228,9 @@ expressions.filters.typecount = function(input, type) {
     var count = 0;
 
     for(var i = 0; i < input.length; i++){
-	
-	for(var j = 0; j < input[i].test_type.length; j++){
-	
-		if(input[i].test_type[j] === type){
+		if(input[i].test_type === type){
             		count += 1;
-        }	}
+        	}
     }
 
     return count;

@@ -1,9 +1,9 @@
 {
   "name": "pwndoc-backend",
   "version": "0.0.1",
-  "description": "pwndoc backend",
-  "productName": "pwndoc",
-  "author": "Stanley HAMMER",
+  "description": "Report Generator",
+  "productName": "Reporter",
+  "author": "İhsan Şen",
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",

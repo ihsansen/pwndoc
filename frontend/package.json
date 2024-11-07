@@ -1,10 +1,10 @@
 {
   "name": "pwndoc-frontend",
   "version": "1.0.0",
-  "description": "pwndoc frontend",
-  "productName": "pwndoc",
+  "description": "Report Generator",
+  "productName": "Reporter",
   "cordovaId": "org.cordova.quasar.app",
-  "author": "Stanley Hammer",
+  "author": "ihsan sen",
   "private": true,
   "scripts": {
     "build": "quasar build",

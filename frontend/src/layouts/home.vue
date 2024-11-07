@@ -2,7 +2,7 @@
   <q-layout ref="layout" view="hHr LpR lFf" :class="$q.dark.isActive ? '' : 'home-background'">
     <q-header>
         <q-toolbar class="bg-fixed-primary">
-            <img src="pwndoc-logo-white.png" style="max-height:50px;" />
+            <img src="national-keep-logo-white.png" style="max-height:50px;" />
             
             <q-item to='/audits' active-class="text-green">
             <q-item-section avatar style="min-width:0" class="q-pr-sm">
