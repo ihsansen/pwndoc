@@ -381,7 +381,6 @@ export default {
 		}
 	},
 
-<<<<<<< HEAD
 		watch: {
 			'audit.findings': {
 				handler(newVal, oldVal) {
@@ -668,16 +667,6 @@ export default {
 					document.body.appendChild(link);
 					link.click();
 					link.remove();
-=======
-	watch: {
-		'audit.findings': {
-			handler(newVal, oldVal) {
-				var result = _.chain(this.audit.findings)
-				.groupBy("category")
-				.map((value, key) => {
-					if (key === 'undefined') key = 'No Category'
-					var sortOption = this.audit.sortFindings.find(option => option.category === key) // Get sort option saved in audit
->>>>>>> 2e7f5747d5688b1368e549c786ce7266fe5ab2b5
 					
 					if (!sortOption) { // no option for category in audit
 						sortOption = this.vulnCategories.find(e => e.name === key) // Get sort option from default in vulnerability category

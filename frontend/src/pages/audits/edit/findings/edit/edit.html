@@ -217,7 +217,6 @@ buttons
                                 </template>
                             </q-field>
                         </q-card-section>
-<<<<<<< HEAD
                     </q-card>
                 </div>
             </div>
@@ -278,43 +277,6 @@ buttons
                         :rules="($settings.report.public.requiredFields.findingRemediationDifficulty) ? [val => !!val || $t('fieldIsRequired')] : ['']"
                         lazy-rules="ondemand"
                         :readonly="frontEndAuditState !== AUDIT_VIEW_STATE.EDIT"
-=======
-                    </component>
-                </q-card>
-            </q-tab-panel>
-            <q-tab-panel name="details" class="q-pt-none">
-                <q-card class="bg-transparent" flat>
-                    <component :is="($parent.commentMode)?'q-scroll-area':'div'" :class="{'scrollarea': $parent.commentMode}">
-                        <q-card>
-                            <q-card-section>
-                                <q-field 
-                                ref="affectedField"
-                                for="affectedField"
-                                class="col-md-12 basic-editor q-pt-none"
-                                :class="{'highlighted-border': fieldHighlighted == 'affectedField' && $parent.commentMode}"
-                                borderless
-                                label-slot
-                                stack-label
-                                :rules="($settings.report.public.requiredFields.findingAffected) ? [val => !!finding.scope || $t('fieldIsRequired')] : ['']"
-                                lazy-rules="ondemand"
-                                >
-                                    <template v-slot="control">
-                                        <basic-editor v-model="finding.scope" :toolbar="['format', 'marks', 'list']" :editable="frontEndAuditState === AUDIT_VIEW_STATE.EDIT"/>
-                                        <q-badge v-if="$parent.commentMode" color="deep-purple" floating class="cursor-pointer" @click="createComment('affectedField')">
-                                            <q-icon name="add_comment" size="xs" />
-                                        </q-badge>
-                                    </template>
-                                    <template v-slot:label>
-                                        {{$t('affectedAssets')}} <span v-if="$settings.report.public.requiredFields.findingAffected" class="text-red">*</span>
-                                    </template>
-                                </q-field>
-                            </q-card-section>
-                        </q-card>
-                        <q-card 
-                        id="cvssField"
-                        class="q-mt-md bg-grey-1"
-                        :class="{'highlighted-border': fieldHighlighted == 'cvssField' && $parent.commentMode}"
->>>>>>> 2e7f5747d5688b1368e549c786ce7266fe5ab2b5
                         >
                             <div class="col-12">
                                 <cvss-calculator 
