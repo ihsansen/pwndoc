@@ -42,7 +42,11 @@
     "socket.io": "^4.7.5",
     "winston": "^3.13.0",
     "xml": "^1.0.1",
+<<<<<<< HEAD
     "swagger-autogen": "^2.23.1",
     "ae-cvss-calculator": "^1.0.1"
+=======
+    "swagger-autogen": "^2.23.7"
+>>>>>>> 2e7f5747d5688b1368e549c786ce7266fe5ab2b5
   }
 }
