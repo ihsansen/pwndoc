@@ -202,7 +202,6 @@ expressions.filters.toFixed = function (input, precision) {
     return input.toFixed(precision);
 };
 
-<<<<<<< HEAD
 // Translate using locale from 'translate' folder
 // Example: {input | translate: 'fr'}
 expressions.filters.translate = function(input, locale) {
@@ -233,8 +232,6 @@ var angularParser = function(tag) {
         }
     };
 }
-=======
->>>>>>> 2e7f5747d5688b1368e549c786ce7266fe5ab2b5
 
 function parser(tag) {
     // We write an exception to handle the tag "$pageBreakExceptLast"
