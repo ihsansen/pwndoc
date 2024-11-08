@@ -1,16 +1,15 @@
 var fs = require('fs');
 var Docxtemplater = require('docxtemplater');
-var JSZip = require('jszip');
-var expressions = require('angular-expressions');
+var PizZip = require("pizzip");
+var expressions = require('./report-filters');
 var ImageModule = require('docxtemplater-image-module-pwndoc');
 var sizeOf = require('image-size');
 var customGenerator = require('./custom-generator');
 var utils = require('./utils');
-var html2ooxml = require('./html2ooxml');
 var _ = require('lodash');
 var Image = require('mongoose').model('Image');
 var Settings = require('mongoose').model('Settings');
-var CVSS31 = require('./cvsscalc31.js');
+const cvss = require('ae-cvss-calculator');
 var translate = require('../translate')
 var $t
 
@@ -19,7 +18,7 @@ async function generateDoc(audit) {
     var templatePath = `${__basedir}/../report-templates/${audit.template.name}.${audit.template.ext || 'docx'}`
     var content = fs.readFileSync(templatePath, "binary");
     
-    var zip = new JSZip(content);
+    var zip = new PizZip(content);
     
     translate.setLocale(audit.language)
     $t = translate.translate
@@ -63,7 +62,7 @@ async function generateDoc(audit) {
             }
             return [width,height];
         }
-        return [0,0]
+        return [0,0];
     }
 
     if (settings.report.private.imageBorder && settings.report.private.imageBorderColor)
@@ -107,59 +106,12 @@ async function generateDoc(audit) {
 }
 exports.generateDoc = generateDoc;
 
-// *** Angular parser filters ***
-
-// Convert input date with parameter s (full,short): {input | convertDate: 's'}
-expressions.filters.convertDate = function(input, s) {
-    var date = new Date(input);
-    if (date != "Invalid Date") {
-        var monthsFull = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        var monthsShort = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
-        var days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-        var day = date.getUTCDate();
-        var month = date.getUTCMonth();
-        var year = date.getUTCFullYear();
-        if (s === "full") {
-            return days[date.getUTCDay()] + ", " + monthsFull[month] + " " + (day<10 ? '0'+day: day) + ", " + year;
-        }
-        if (s === "short") {
-            return monthsShort[month] + "/" + (day<10 ? '0'+day: day) + "/" + year;
-        }
-    }
-}
-
-// Convert input date with parameter s (full,short): {input | convertDateLocale: 'locale':'style'}
-expressions.filters.convertDateLocale = function(input, locale, style) {
-    var date = new Date(input);
-    if (date != "Invalid Date") {
-        var options = { year: 'numeric', month: '2-digit', day: '2-digit'}
-
-        if (style === "full")
-            options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'}
-
-        return date.toLocaleDateString(locale, options)
-       
-    }
-}
-
-// Convert identifier prefix to a user defined prefix: {identifier | changeID: 'PRJ-'}
-expressions.filters.changeID = function (input, prefix) {
-    return input.replace("IDX-", prefix);
-}
-
-// Replace newlines in office XML format: {@input | NewLines}
-expressions.filters.NewLines = function(input) {
-    var pre = '<w:p><w:r><w:t>';
-    var post = '</w:t></w:r></w:p>';
-    var lineBreak = '<w:br/>';
-    var result = '';
-
-    if(!input) return pre + post;
-
-    input = utils.escapeXMLEntities(input);
-    var inputArray = input.split(/\n\n+/g);
-    inputArray.forEach(p => {
-        result += `${pre}${p.replace(/\n/g, lineBreak)}${post}`
+// Filters helper: handles the use of preformated easilly translatable strings.
+// Source: https://www.tutorialstonight.com/javascript-string-format.php
+String.prototype.format = function () {
+    let args = arguments;
+    return this.replace(/{([0-9]+)}/g, function (match, index) {
+        return typeof args[index] == 'undefined' ? match : args[index];
     });
     // input = input.replace(/\n/g, lineBreak);
     // return pre + input + post;
@@ -302,6 +254,7 @@ function parser(tag) {
     // https://docxtemplater.readthedocs.io/en/latest/configuration.html#default-parser
     return angularParser(tag);
 }
+
 function cvssStrToObject(cvss) {
     var initialState = 'Not Defined'
     var res = {AV:initialState, AC:initialState, PR:initialState, UI:initialState, S:initialState, C:initialState, I:initialState, A:initialState, E:initialState, RL:initialState, RC:initialState, CR:initialState, IR:initialState, AR:initialState, MAV:initialState, MAC:initialState, MPR:initialState, MUI:initialState, MS:initialState, MC:initialState, MI:initialState, MA:initialState};
@@ -448,6 +401,210 @@ function cvssStrToObject(cvss) {
     return res
 }
 
+function cvss4StrToObject(cvss4) {
+    var initialState = 'Not Defined'
+    var res = {AV:initialState, AC:initialState, AT:initialState, PR:initialState, UI:initialState, VC:initialState, VI:initialState, VA:initialState, SC:initialState, VI:initialState, VA:initialState, S:initialState, AU:initialState, R:initialState, V:initialState, RE:initialState, U:initialState, MAV:initialState, MAC:initialState, MAC:initialState, MPR:initialState, MUI:initialState, MVC:initialState, MVI:initialState, MVA:initialState, MSC:initialState, MSI:initialState, MSA:initialState, CR:initialState, IR:initialState, AR:initialState, E:initialState};
+    if (cvss4) {
+        var temp = cvss4.split('/');
+        for (var i=0; i<temp.length; i++) {
+            var elt = temp[i].split(':');
+            switch(elt[0]) {
+                case "AV":
+                    if (elt[1] === "N") res.AV = "Network"
+                    else if (elt[1] === "A") res.AV = "Adjacent"
+                    else if (elt[1] === "L") res.AV = "Local"
+                    else if (elt[1] === "P") res.AV = "Physical"
+                    res.AV = $t(res.AV)
+                    break;
+                case "AC":
+                    if (elt[1] === "L") res.AC = "Low"
+                    else if (elt[1] === "H") res.AC = "High"
+                    res.AC = $t(res.AC)
+                    break;
+                case "AT":
+                    if (elt[1] === "N") res.AT = "None"
+                    else if (elt[1] === "P") res.AT = "Present"
+                    res.AT = $t(res.AT)
+                    break;
+                case "PR":
+                    if (elt[1] === "N") res.PR = "None"
+                    else if (elt[1] === "L") res.PR = "Low"
+                    else if (elt[1] === "H") res.PR = "High"
+                    res.PR = $t(res.PR)
+                    break;
+                case "UI":
+                    if (elt[1] === "N") res.UI = "None"
+                    else if (elt[1] === "P") res.UI = "Passive"
+                    else if (elt[1] === "A") res.UI = "Active"
+                    res.UI = $t(res.UI)
+                    break;
+                case "VC":
+                    if (elt[1] === "N") res.VC = "None"
+                    else if (elt[1] === "L") res.VC = "Low"
+                    else if (elt[1] === "H") res.VC = "High"
+                    res.VC = $t(res.VC)
+                    break;
+                case "VI":
+                    if (elt[1] === "N") res.VI = "None"
+                    else if (elt[1] === "L") res.VI = "Low"
+                    else if (elt[1] === "H") res.VI = "High"
+                    res.VI = $t(res.VI)
+                    break;
+                case "VA":
+                    if (elt[1] === "N") res.VA = "None"
+                    else if (elt[1] === "L") res.VA = "Low"
+                    else if (elt[1] === "H") res.VA = "High"
+                    res.VA = $t(res.VA)
+                    break;
+                case "SC":
+                    if (elt[1] === "N") res.SC = "None"
+                    else if (elt[1] === "L") res.SC = "Low"
+                    else if (elt[1] === "H") res.SC = "High"
+                    res.SC = $t(res.SC)
+                    break;
+                case "SI":
+                    if (elt[1] === "N") res.SI = "None"
+                    else if (elt[1] === "L") res.SI = "Low"
+                    else if (elt[1] === "H") res.SI = "High"
+                    res.SI = $t(res.SI)
+                    break;
+                case "SA":
+                    if (elt[1] === "N") res.SA = "None"
+                    else if (elt[1] === "L") res.SA = "Low"
+                    else if (elt[1] === "H") res.SA = "High"
+                    res.SA = $t(res.SA)
+                    break;
+                case "S":
+                    if (elt[1] === "N") res.S = "Negligible"
+                    else if (elt[1] === "P") res.S = "Present"
+                    res.S = $t(res.S)
+                    break;
+                case "AU":
+                    if (elt[1] === "N") res.AU = "No"
+                    else if (elt[1] === "Y") res.AU = "Yes"
+                    res.AU = $t(res.AU)
+                    break;
+                case "R":
+                    if (elt[1] === "A") res.R = "Automatic"
+                    else if (elt[1] === "U") res.R = "User"
+                    else if (elt[1] === "I") res.R = "Irrecoverable"
+                    res.R = $t(res.R)
+                    break;
+                case "V":
+                    if (elt[1] === "D") res.V = "Diffuse"
+                    else if (elt[1] === "C") res.V = "Concentrated"
+                    res.V = $t(res.V)
+                    break;
+                case "RE":
+                    if (elt[1] === "L") res.RE = "Low"
+                    else if (elt[1] === "M") res.RE = "Moderate"
+                    else if (elt[1] === "H") res.RE = "High"
+                    res.RE = $t(res.RE)
+                    break;
+                case "U":
+                    if (elt[1] === "CLEAR") res.U = "Clear"
+                    else if (elt[1] === "GREEN") res.U = "Green"
+                    else if (elt[1] === "AMBER") res.U = "Amber"
+                    else if (elt[1] === "RED") res.U = "Red"
+                    res.U = $t(res.U)
+                    break;
+                case "MAV":
+                    if (elt[1] === "N") res.MAV = "Network"
+                    else if (elt[1] === "A") res.MAV = "Adjacent"
+                    else if (elt[1] === "L") res.MAV = "Local"
+                    else if (elt[1] === "P") res.MAV = "Physical"
+                    res.MAV = $t(res.MAV)
+                    break;
+                case "MAC":
+                    if (elt[1] === "L") res.MAC = "Low"
+                    else if (elt[1] === "H") res.MAC = "High"
+                    res.MAC = $t(res.MAC)
+                    break;
+                case "MAT":
+                    if (elt[1] === "N") res.MAT = "None"
+                    else if (elt[1] === "P") res.MAT = "Present"
+                    res.MAT = $t(res.MAT)
+                    break;
+                case "MPR":
+                    if (elt[1] === "N") res.MPR = "None"
+                    else if (elt[1] === "L") res.MPR = "Low"
+                    else if (elt[1] === "H") res.MPR = "High"
+                    res.MPR = $t(res.MPR)
+                    break;
+                case "MUI":
+                    if (elt[1] === "N") res.MUI = "None"
+                    else if (elt[1] === "P") res.MUI = "Passive"
+                    else if (elt[1] === "A") res.MUI = "Active"
+                    res.MUI = $t(res.MUI)
+                    break;
+                case "MVC":
+                    if (elt[1] === "N") res.MVC = "None"
+                    else if (elt[1] === "L") res.MVC = "Low"
+                    else if (elt[1] === "H") res.MVC = "High"
+                    res.MVC = $t(res.MVC)
+                    break;
+                case "MVI":
+                    if (elt[1] === "N") res.MVI = "None"
+                    else if (elt[1] === "L") res.MVI = "Low"
+                    else if (elt[1] === "H") res.MVI = "High"
+                    res.MVI = $t(res.MVI)
+                    break;
+                case "MVA":
+                    if (elt[1] === "N") res.MVA = "None"
+                    else if (elt[1] === "L") res.MVA = "Low"
+                    else if (elt[1] === "H") res.MVA = "High"
+                    res.MVA = $t(res.MVA)
+                    break;
+                case "MSC":
+                    if (elt[1] === "N") res.MSC = "None"
+                    else if (elt[1] === "L") res.MSC = "Low"
+                    else if (elt[1] === "H") res.MSC = "High"
+                    res.MSC = $t(res.MSC)
+                    break;
+                case "MSI":
+                    if (elt[1] === "N") res.MSI = "None"
+                    else if (elt[1] === "L") res.MSI = "Low"
+                    else if (elt[1] === "H") res.MSI = "High"
+                    res.MSI = $t(res.MSI)
+                    break;
+                case "MSA":
+                    if (elt[1] === "N") res.MSA = "None"
+                    else if (elt[1] === "L") res.MSA = "Low"
+                    else if (elt[1] === "H") res.MSA = "High"
+                    res.MSA = $t(res.MSA)
+                    break;
+                case "CR":
+                    if (elt[1] === "H") res.CR = "High"
+                    else if (elt[1] === "M") res.CR = "Medium"
+                    else if (elt[1] === "L") res.CR = "Low"
+                    res.CR = $t(res.CR)
+                    break;
+                case "IR":
+                    if (elt[1] === "H") res.IR = "High"
+                    else if (elt[1] === "M") res.IR = "Medium"
+                    else if (elt[1] === "L") res.IR = "Low"
+                    res.IR = $t(res.IR)
+                    break;
+                case "AR":
+                    if (elt[1] === "H") res.AR = "High"
+                    else if (elt[1] === "M") res.AR = "Medium"
+                    else if (elt[1] === "L") res.AR = "Low"
+                    res.AR = $t(res.AR)
+                    break;
+                case "E":
+                    if (elt[1] === "A") res.E = "Attacked"
+                    else if (elt[1] === "P") res.E = "POC"
+                    else if (elt[1] === "U") res.E = "Unreported"
+                    res.E = $t(res.E)
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+    return res
+}
+
 async function prepAuditData(data, settings) {
     /** CVSS Colors for table cells */
     var noneColor = settings.report.public.cvssColors.noneColor.replace('#', ''); //default of blue ("#4A86E8")
@@ -466,12 +623,11 @@ async function prepAuditData(data, settings) {
     result.name = data.name || "undefined"
     result.state = "DENEME" || "undefined"
     result.auditType = $t(data.auditType) || "undefined"
-    result.location = data.location || "undefined"
     result.date = data.date || "undefined"
     result.date_start = data.date_start || "undefined"
     result.date_end = data.date_end || "undefined"
     if (data.customFields) {
-        for (field of data.customFields) {
+        for (var field of data.customFields) {
             var fieldType = field.customField.fieldType
             var label = field.customField.label
 
@@ -515,8 +671,7 @@ async function prepAuditData(data, settings) {
     result.scope = data.scope.toObject() || []
 
     result.findings = []
-    for (finding of data.findings) {
-        var tmpCVSS = CVSS31.calculateCVSSFromVector(finding.cvssv3);
+    for (var finding of data.findings) {
         var tmpFinding = {
             title: finding.title || "",
             vulnType: $t(finding.vulnType) || "",
@@ -530,59 +685,84 @@ async function prepAuditData(data, settings) {
             affected: finding.scope || "",
             status: finding.status || "",
             category: $t(finding.category) || $t("No Category"),
-            identifier: "IDX-" + utils.lPad(finding.identifier)
+            identifier: "IDX-" + utils.lPad(finding.identifier),
+            retestStatus: finding.retestStatus || "",
+            retestDescription: await splitHTMLParagraphs(finding.retestDescription)
         }
-        // Handle CVSS
-        tmpFinding.cvss = {
-            vectorString: tmpCVSS.vectorString || "",
-            baseMetricScore: tmpCVSS.baseMetricScore || "",
-            baseSeverity: tmpCVSS.baseSeverity || "",
-            temporalMetricScore: tmpCVSS.temporalMetricScore || "",
-            temporalSeverity: tmpCVSS.temporalSeverity || "",
-            environmentalMetricScore: tmpCVSS.environmentalMetricScore || "",
-            environmentalSeverity: tmpCVSS.environmentalSeverity || ""
+
+        if (settings.report.public.scoringMethods.CVSS3) {
+            // Handle CVSS 3.1
+            var tmpCVSS = new cvss.Cvss3P1(finding.cvssv3).createJsonSchema();
+
+            if (tmpCVSS.baseSeverity) {
+                tmpCVSS.baseSeverity = tmpCVSS.baseSeverity.charAt(0).toUpperCase() + tmpCVSS.baseSeverity.slice(1).toLowerCase()
+            }
+
+            if (tmpCVSS.temporalSeverity) {
+                tmpCVSS.temporalSeverity = tmpCVSS.temporalSeverity.charAt(0).toUpperCase() + tmpCVSS.temporalSeverity.slice(1).toLowerCase()
+            }
+
+            if (tmpCVSS.environmentalSeverity) {
+                tmpCVSS.environmentalSeverity = tmpCVSS.environmentalSeverity.charAt(0).toUpperCase() + tmpCVSS.environmentalSeverity.slice(1).toLowerCase()
+            }
+
+            tmpFinding.cvss = {
+                vectorString: tmpCVSS.vectorString || "",
+                baseMetricScore: tmpCVSS.baseScore || "",
+                baseSeverity: tmpCVSS.baseSeverity || "",
+                temporalMetricScore: tmpCVSS.temporalScore || "",
+                temporalSeverity: tmpCVSS.temporalSeverity || "",
+                environmentalMetricScore: tmpCVSS.environmentalScore || "",
+                environmentalSeverity: tmpCVSS.environmentalSeverity || ""
+            }
+    
+            if (tmpCVSS.baseSeverity === "Low") tmpFinding.cvss.cellColor = cellLowColor
+            else if (tmpCVSS.baseSeverity === "Medium") tmpFinding.cvss.cellColor = cellMediumColor
+            else if (tmpCVSS.baseSeverity === "High") tmpFinding.cvss.cellColor = cellHighColor
+            else if (tmpCVSS.baseSeverity === "Critical") tmpFinding.cvss.cellColor = cellCriticalColor
+            else tmpFinding.cvss.cellColor = cellNoneColor
+    
+            if (tmpCVSS.temporalSeverity === "Low") tmpFinding.cvss.temporalCellColor = cellLowColor
+            else if (tmpCVSS.temporalSeverity === "Medium") tmpFinding.cvss.temporalCellColor = cellMediumColor
+            else if (tmpCVSS.temporalSeverity === "High") tmpFinding.cvss.temporalCellColor = cellHighColor
+            else if (tmpCVSS.temporalSeverity === "Critical") tmpFinding.cvss.temporalCellColor = cellCriticalColor
+            else tmpFinding.cvss.temporalCellColor = cellNoneColor
+    
+            if (tmpCVSS.environmentalSeverity === "Low") tmpFinding.cvss.environmentalCellColor = cellLowColor
+            else if (tmpCVSS.environmentalSeverity === "Medium") tmpFinding.cvss.environmentalCellColor = cellMediumColor
+            else if (tmpCVSS.environmentalSeverity === "High") tmpFinding.cvss.environmentalCellColor = cellHighColor
+            else if (tmpCVSS.environmentalSeverity === "Critical") tmpFinding.cvss.environmentalCellColor = cellCriticalColor
+            else tmpFinding.cvss.environmentalCellColor = cellNoneColor
+    
+            tmpFinding.cvssObj = cvssStrToObject(tmpCVSS.vectorString)
         }
-        if (tmpCVSS.baseImpact) 
-            tmpFinding.cvss.baseImpact = CVSS31.roundUp1(tmpCVSS.baseImpact)
-        else
-            tmpFinding.cvss.baseImpact = ""
-        if (tmpCVSS.baseExploitability)
-            tmpFinding.cvss.baseExploitability = CVSS31.roundUp1(tmpCVSS.baseExploitability)
-        else
-            tmpFinding.cvss.baseExploitability = ""
+        
+        if (settings.report.public.scoringMethods.CVSS4) {
+            // Handle CVSS 4.0
+            var tmpCVSS = new cvss.Cvss4P0(finding.cvssv4).createJsonSchema();
 
-        if (tmpCVSS.environmentalModifiedImpact) 
-            tmpFinding.cvss.environmentalModifiedImpact = CVSS31.roundUp1(tmpCVSS.environmentalModifiedImpact)
-        else
-            tmpFinding.cvss.environmentalModifiedImpact = ""
-        if (tmpCVSS.environmentalModifiedExploitability)
-            tmpFinding.cvss.environmentalModifiedExploitability = CVSS31.roundUp1(tmpCVSS.environmentalModifiedExploitability)
-        else
-            tmpFinding.cvss.environmentalModifiedExploitability = ""
+            if (tmpCVSS.baseSeverity) {
+                tmpCVSS.baseSeverity = tmpCVSS.baseSeverity.charAt(0).toUpperCase() + tmpCVSS.baseSeverity.slice(1).toLowerCase()
+            }
 
-        if (tmpCVSS.baseSeverity === "Low") tmpFinding.cvss.cellColor = cellLowColor
-        else if (tmpCVSS.baseSeverity === "Medium") tmpFinding.cvss.cellColor = cellMediumColor
-        else if (tmpCVSS.baseSeverity === "High") tmpFinding.cvss.cellColor = cellHighColor
-        else if (tmpCVSS.baseSeverity === "Critical") tmpFinding.cvss.cellColor = cellCriticalColor
-        else tmpFinding.cvss.cellColor = cellNoneColor
+            tmpFinding.cvss4 = {
+                vectorString: tmpCVSS.vectorString || "",
+                baseScore: tmpCVSS.baseScore || "",
+                baseSeverity: tmpCVSS.baseSeverity || "",
+            }
 
-        if (tmpCVSS.temporalSeverity === "Low") tmpFinding.cvss.temporalCellColor = cellLowColor
-        else if (tmpCVSS.temporalSeverity === "Medium") tmpFinding.cvss.temporalCellColor = cellMediumColor
-        else if (tmpCVSS.temporalSeverity === "High") tmpFinding.cvss.temporalCellColor = cellHighColor
-        else if (tmpCVSS.temporalSeverity === "Critical") tmpFinding.cvss.temporalCellColor = cellCriticalColor
-        else tmpFinding.cvss.temporalCellColor = cellNoneColor
+            if (tmpCVSS.baseSeverity === "Low") tmpFinding.cvss4.cellColor = cellLowColor
+            else if (tmpCVSS.baseSeverity === "Medium") tmpFinding.cvss4.cellColor = cellMediumColor
+            else if (tmpCVSS.baseSeverity === "High") tmpFinding.cvss4.cellColor = cellHighColor
+            else if (tmpCVSS.baseSeverity === "Critical") tmpFinding.cvss4.cellColor = cellCriticalColor
+            else tmpFinding.cvss.cellColor = cellNoneColor
 
-        if (tmpCVSS.environmentalSeverity === "Low") tmpFinding.cvss.environmentalCellColor = cellLowColor
-        else if (tmpCVSS.environmentalSeverity === "Medium") tmpFinding.cvss.environmentalCellColor = cellMediumColor
-        else if (tmpCVSS.environmentalSeverity === "High") tmpFinding.cvss.environmentalCellColor = cellHighColor
-        else if (tmpCVSS.environmentalSeverity === "Critical") tmpFinding.cvss.environmentalCellColor = cellCriticalColor
-        else tmpFinding.cvss.environmentalCellColor = cellNoneColor
-
-        tmpFinding.cvssObj = cvssStrToObject(tmpCVSS.vectorString)
-
+            tmpFinding.cvss4Obj = cvss4StrToObject(tmpCVSS.vectorString)
+        }
+    
         if (finding.customFields) {
             for (field of finding.customFields) {
-                // For retrocompatibility of findings with old customFields 
+                // For retrocompatibility of findings with old customFields
                 // or if custom field has been deleted, last saved custom fields will be available
                 if (field.customField) {
                     var fieldType = field.customField.fieldType
@@ -606,7 +786,7 @@ async function prepAuditData(data, settings) {
         .groupBy("category")
         .map((value,key) => {return {categoryName:key, categoryFindings:value}})
         .value()
-    
+
     result.creator = {}
     if (data.creator) {
         result.creator.username = data.creator.username || "undefined"
@@ -617,7 +797,7 @@ async function prepAuditData(data, settings) {
         result.creator.role = data.creator.role || "undefined"
     }
 
-    for (section of data.sections) {
+    for (var section of data.sections) {
         var formatSection = { 
             name: $t(section.name)
         }
@@ -646,7 +826,7 @@ async function splitHTMLParagraphs(data) {
 
     var splitted = data.split(/(<img.+?src=".*?".+?alt=".*?".*?>)/)
 
-    for (value of splitted){
+    for (var value of splitted){
         if (value.startsWith("<img")) {
             var src = value.match(/<img.+src="(.*?)"/) || ""
             var alt = value.match(/<img.+alt="(.*?)"/) || ""

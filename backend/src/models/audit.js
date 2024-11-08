@@ -1,5 +1,5 @@
 var mongoose = require('mongoose');//.set('debug', true);
-const CVSS31 = require('../lib/cvsscalc31');
+const cvss = require('ae-cvss-calculator');
 var Schema = mongoose.Schema;
 
 var Paragraph = {
@@ -25,12 +25,15 @@ var Finding = {
     priority:               {type: Number, enum: [1,2,3,4]},
     references:             [String],
     cvssv3:                 String,
+    cvssv4:                 String,
     paragraphs:             [Paragraph],
     poc:                    String,
     scope:                  String,
     status:                 {type: Number, enum: [0,1], default: 1}, // 0: done, 1: redacting
     category:               String,
-    customFields:           [customField]
+    customFields:           [customField],
+    retestStatus:           {type: String, enum: ['ok', 'ko', 'unknown', 'partial']},
+    retestDescription:      String
 }
 
 var Service = {
@@ -59,7 +62,6 @@ var SortOption = {
 var AuditSchema = new Schema({
     name:               {type: String, required: true},
     auditType:          String,
-    location:           String,
     date:               String,
     date_start:         String,
     date_end:           String,
@@ -78,6 +80,8 @@ var AuditSchema = new Schema({
     sortFindings:       [SortOption],
     state:              { type: String, enum: ['EDIT', 'REVIEW', 'APPROVED'], default: 'EDIT'},
     approvals:          [{type: Schema.Types.ObjectId, ref: 'User'}],
+    type:               {type: String, enum: ['default', 'multi', 'retest'], default: 'default'},
+    parentId:           {type: Schema.Types.ObjectId, ref: 'Audit'}
 }, {timestamps: true});
 
 /*
@@ -95,7 +99,7 @@ AuditSchema.statics.getAudits = (isAdmin, userId, filters) => {
         query.populate('reviewers', 'username firstname lastname')
         query.populate('approvals', 'username firstname lastname')
         query.populate('company', 'name')
-        query.select('id name language creator collaborators company createdAt state')
+        query.select('id name auditType language creator collaborators company createdAt state type parentId')
         query.exec()
         .then((rows) => {
             resolve(rows)
@@ -136,6 +140,168 @@ AuditSchema.statics.getAudit = (isAdmin, auditId, userId) => {
         .catch((err) => {
             if (err.name === "CastError")
                 reject({fn: 'BadParameters', message: 'Bad Audit Id'})
+            else
+                reject(err)
+        })
+    })
+}
+
+AuditSchema.statics.getAuditChildren = (isAdmin, auditId, userId) => {
+    return new Promise((resolve, reject) => {
+        var query = Audit.find({parentId: auditId})
+        if (!isAdmin)
+            query.or([{creator: userId}, {collaborators: userId}, {reviewers: userId}])
+        query.exec()
+        .then((rows) => {
+            if (!rows)
+                throw({fn: 'NotFound', message: 'Children not found or Insufficient Privileges'})
+            resolve(rows)
+        })
+        .catch((err) => {
+            if (err.name === "CastError")
+                reject({fn: 'BadParameters', message: 'Bad Audit Id'})
+            else
+                reject(err)
+        })
+    })
+}
+
+// Get Audit Retest
+AuditSchema.statics.getRetest = (isAdmin, auditId, userId) => {
+    return new Promise((resolve, reject) => {
+        var query = Audit.findOne({parentId: auditId})
+
+        if (!isAdmin)
+            query.or([{creator: userId}, {collaborators: userId}, {reviewers: userId}])
+        query.exec()
+        .then((row) => {
+            if (!row)
+                throw({fn: 'NotFound', message: 'No retest found for this audit'})
+            else {
+                resolve(row)
+            }
+        })
+        .catch((err) => {
+            reject(err)
+        })         
+    })
+}
+
+// Create Audit Retest
+AuditSchema.statics.createRetest = (isAdmin, auditId, userId, auditType) => {
+    return new Promise((resolve, reject) => {
+        var audit = {}
+        audit.creator = userId
+        audit.type = 'retest'
+        audit.parentId = auditId
+        audit.auditType = auditType
+        audit.findings = []
+        audit.sections = []
+        audit.customFields = []
+
+        var auditTypeSections = []
+        var customSections = []
+        var customFields = []
+        var AuditType = mongoose.model('AuditType')
+
+        var query = Audit.findById(auditId)
+        if (!isAdmin)
+            query.or([{creator: userId}, {collaborators: userId}, {reviewers: userId}])
+        query.exec()               
+        .then(async (row) => {
+            if (!row)
+                throw({fn: 'NotFound', message: 'Audit not found or Insufficient Privileges'})
+            else {
+                var retest = await Audit.findOne({parentId: auditId}).exec()
+                if (retest)
+                    throw({fn: 'BadParameters', message: 'Retest already exists for this Audit'})
+                audit.name = row.name
+                audit.company = row.company
+                audit.client = row.client
+                audit.collaborators = row.collaborators
+                audit.reviewers = row.reviewers
+                audit.language = row.language
+                audit.scope = row.scope
+                audit.findings = row.findings
+                // row.findings.forEach(finding => {
+                //     var tmpFinding = {}
+                //     tmpFinding.title = finding.title
+                //     tmpFinding.identifier = finding.identifier
+                //     tmpFinding.cvssv3 = finding.cvssv3
+                //     tmpFinding.vulnType = finding.vulnType
+                //     tmpFinding.category = finding.category
+                //     audit.findings.push(tmpFinding)
+                // })
+                return AuditType.getByName(auditType)
+            }
+        })
+        .then((row) => {
+            if (row) {
+                auditTypeSections = row.sections
+                var auditTypeTemplate = row.templates.find(e => e.locale === audit.language)
+                if (auditTypeTemplate)
+                    audit.template = auditTypeTemplate.template
+                var Section = mongoose.model('CustomSection')
+                var CustomField = mongoose.model('CustomField')
+                var promises = []
+                promises.push(Section.getAll())
+                promises.push(CustomField.getAll())
+                return Promise.all(promises)
+            }
+            else
+                throw({fn: 'NotFound', message: 'AuditType not found'})
+        })
+        .then(resolved => {
+            customSections = resolved[0]
+            customFields = resolved[1]
+
+            customSections.forEach(section => { // Add sections with customFields (and default text) to audit
+                var tmpSection = {}
+                if (auditTypeSections.includes(section.field)) {
+                    tmpSection.field = section.field
+                    tmpSection.name = section.name
+                    tmpSection.customFields = []
+
+                    customFields.forEach(field => {
+                        field = field.toObject()
+                        if (field.display === 'section' && field.displaySub === tmpSection.name) {
+                            var fieldText = field.text.find(e => e.locale === audit.language)
+                            if (fieldText)
+                                fieldText = fieldText.value
+                            else
+                                fieldText = ""
+                            
+                            delete field.text
+                            tmpSection.customFields.push({customField: field, text: fieldText})
+                        }
+                    })
+                    audit.sections.push(tmpSection)
+                }
+            })
+
+            customFields.forEach(field => { // Add customFields (and default text) to audit
+                field = field.toObject()
+                if (field.display === 'general') {
+                    var fieldText = field.text.find(e => e.locale === audit.language)
+                    if (fieldText)
+                        fieldText = fieldText.value
+                    else
+                        fieldText = ""
+
+                    delete field.text
+                    audit.customFields.push({customField: field, text: fieldText})
+                }
+            })
+
+            return new Audit(audit).save()
+        })
+        .then((rows) => {
+            resolve(rows)
+        })
+        .catch((err) => {
+            console.log(err)
+            if (err.name === "ValidationError")
+                reject({fn: 'BadParameters', message: 'Audit validation failed'})
             else
                 reject(err)
         })
@@ -278,8 +444,8 @@ AuditSchema.statics.getGeneral = (isAdmin, auditId, userId) => {
         query.populate('collaborators', 'username firstname lastname')
         query.populate('reviewers', 'username firstname lastname')
         query.populate('company')
-        query.select('name auditType location date date_start date_end client collaborators language scope.name template customFields')
-        query.exec()
+        query.select('name auditType date date_start date_end client collaborators language scope.name template customFields')
+        query.lean().exec()
         .then((row) => {
             if (!row)
                 throw({fn: 'NotFound', message: 'Audit not found or Insufficient Privileges'});
@@ -397,7 +563,7 @@ AuditSchema.statics.createFinding = (isAdmin, auditId, userId, finding) => {
 
 AuditSchema.statics.getLastFindingIdentifier = (auditId) => {
     return new Promise((resolve, reject) => {
-        var query = Audit.aggregate([{ $match: {_id: mongoose.Types.ObjectId(auditId)} }])
+        var query = Audit.aggregate([{ $match: {_id: new mongoose.Types.ObjectId(auditId)} }])
         query.unwind('findings')
         query.sort({'findings.identifier': -1})
         query.exec()
@@ -663,8 +829,8 @@ AuditSchema.statics.updateSortFindings = (isAdmin, auditId, userId, update) => {
 
                 var tmpFindings = group.findings
                 .sort((a,b) => {
-                    var cvssA = CVSS31.calculateCVSSFromVector(a.cvssv3)
-                    var cvssB = CVSS31.calculateCVSSFromVector(b.cvssv3)
+                    var cvssA = new cvss.Cvss3P1(a.cvssv3)
+                    var cvssB = new cvss.Cvss3P1(b.cvssv3)
 
                     // Get built-in value (findings[sortValue])
                     var left = a[group.sortOption.sortValue]
@@ -781,6 +947,44 @@ AuditSchema.statics.updateApprovals = (isAdmin, auditId, userId, update) => {
             reject(err)
         })
     });
+}
+
+// Update audit parent
+AuditSchema.statics.updateParent = (isAdmin, auditId, userId, parentId) => {
+    return new Promise(async(resolve, reject) => { 
+        var query = Audit.findByIdAndUpdate(auditId, {parentId: parentId})
+        if (!isAdmin)
+            query.or([{creator: userId}, {collaborators: userId}])
+        query.exec()
+        .then(row => {
+            if (!row)
+                throw({fn: 'NotFound', message: 'Audit not found or Insufficient Privileges'})
+            
+            resolve("Audit Parent updated successfully")
+        })
+        .catch((err) => {
+            reject(err)
+        })
+    })
+}
+
+// Delete audit parent
+AuditSchema.statics.deleteParent = (isAdmin, auditId, userId) => {
+    return new Promise(async(resolve, reject) => { 
+        var query = Audit.findByIdAndUpdate(auditId, {parentId: null})
+        if (!isAdmin)
+            query.or([{creator: userId}, {collaborators: userId}])
+        query.exec()
+        .then(row => {
+            if (!row)
+                throw({fn: 'NotFound', message: 'Audit not found or Insufficient Privileges'})
+            
+            resolve(row)
+        })
+        .catch((err) => {
+            reject(err)
+        })
+    })
 }
 
 /*
