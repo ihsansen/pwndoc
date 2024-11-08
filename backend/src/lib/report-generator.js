@@ -2,6 +2,7 @@ var fs = require('fs');
 var Docxtemplater = require('docxtemplater');
 var PizZip = require("pizzip");
 var expressions = require('./report-filters');
+let expressionParser = require('docxtemplater/expressions.js')
 var ImageModule = require('docxtemplater-image-module-pwndoc');
 var sizeOf = require('image-size');
 var customGenerator = require('./custom-generator');
@@ -74,6 +75,7 @@ async function generateDoc(audit) {
     catch(err) {
         console.log(err)
     }
+    expressionParser.filters = {...expressions, ...customGenerator.expressions}
     var doc = new Docxtemplater().attachModule(imageModule).loadZip(zip).setOptions({parser: parser, paragraphLoop: true});
     customGenerator.apply(preppedAudit);
     doc.setData(preppedAudit);
@@ -252,7 +254,7 @@ function parser(tag) {
     // If you don't wish to use the angularParser,
     // you can use the default parser as documented here:
     // https://docxtemplater.readthedocs.io/en/latest/configuration.html#default-parser
-    return angularParser(tag);
+    return expressionParser(tag);
 }
 
 function cvssStrToObject(cvss) {
